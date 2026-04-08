@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Quiz Torchtot 🎿</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, push, remove }
+      from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDh1QVNMIOlcHaWz6x2u8dacuMuRFUINyQ",
+      authDomain: "bingo-drakks.firebaseapp.com",
+      databaseURL: "https://bingo-drakks-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "bingo-drakks",
+      storageBucket: "bingo-drakks.firebasestorage.app",
+      messagingSenderId: "1039474171005",
+      appId: "1:1039474171005:web:868b69c101fd9b1656e514"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app);
+
+    window._db      = db;
+    window._ref     = ref;
+    window._set     = set;
+    window._get     = get;
+    window._onValue = onValue;
+    window._push    = push;
+    window._remove  = remove;
+    window._dbReady = true;
+    document.dispatchEvent(new Event("dbReady"));
+  </script>
+
+  <style>
+    :root {
+      --bg:      #0f0c1d;
+      --card:    #1a1533;
+      --a1:      #ff3cac;
+      --a2:      #ffcc00;
+      --a3:      #00f5d4;
+      --a4:      #7b2fff;
+      --text:    #f0e6ff;
+      --border:  rgba(255,60,172,.28);
+      --correct: #00e676;
+      --wrong:   #ff4444;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      font-family: 'Nunito', sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Starfield */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,.12) 1px, transparent 1px),
+        radial-gradient(circle, rgba(255,204,0,.07)   1px, transparent 1px);
+      background-size: 60px 60px, 100px 100px;
+      background-position: 0 0, 30px 30px;
+      animation: drift 30s linear infinite;
+    }
+    @keyframes drift { to { background-position: 60px 60px, 90px 90px; } }
+
+    /* Blobs */
+    .blob { position: fixed; border-radius: 50%; filter: blur(80px); opacity: .18; pointer-events: none; z-index: 0; }
+    .b1 { width:360px;height:360px;background:var(--a1);top:-100px;left:-100px;animation:pulse 8s ease-in-out infinite alternate; }
+    .b2 { width:300px;height:300px;background:var(--a4);bottom:-80px;right:-80px;animation:pulse 10s ease-in-out infinite alternate-reverse; }
+    .b3 { width:200px;height:200px;background:var(--a3);top:45%;left:50%;transform:translate(-50%,-50%);animation:pulse 12s ease-in-out infinite alternate; }
+    @keyframes pulse { to { transform: scale(1.2); } }
+    .b3 { animation: pulse3 12s ease-in-out infinite alternate; }
+    @keyframes pulse3 { to { transform: translate(-50%,-50%) scale(1.2); } }
+
+    /* Nav */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(15,12,29,.96);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 8px;
+      backdrop-filter: blur(10px);
+    }
+    .logo {
+      font-family: 'Bangers', cursive;
+      font-size: 22px; letter-spacing: 3px;
+      color: var(--a2);
+      text-shadow: 0 0 12px rgba(255,204,0,.6), 2px 2px 0 var(--a1);
+      flex: 1;
+    }
+    .tab-btn {
+      font-family: 'Bangers', cursive;
+      font-size: 14px; letter-spacing: 2px;
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text); border-radius: 8px;
+      padding: 7px 14px; cursor: pointer;
+      transition: background .2s, border-color .2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tab-btn.active { background: rgba(255,60,172,.25); border-color: var(--a1); }
+    .sync-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--a3); box-shadow: 0 0 8px var(--a3);
+      animation: blink 2s ease-in-out infinite; flex-shrink: 0;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+    .sync-dot.off { background: #ff4444; box-shadow: 0 0 8px #ff4444; animation: none; }
+
+    /* Main wrapper */
+    #main {
+      position: relative; z-index: 1;
+      max-width: 560px; margin: 0 auto;
+      padding: 24px 16px 80px;
+    }
+
+    /* ── SETUP SCREEN ── */
+    .setup-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 24px;
+      text-align: center;
+      animation: fadeUp .4s cubic-bezier(.3,1.2,.5,1) both;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .setup-title {
+      font-family: 'Bangers', cursive;
+      font-size: clamp(40px, 11vw, 64px);
+      color: var(--a2); letter-spacing: 4px; line-height: 1;
+      text-shadow: 0 0 18px rgba(255,204,0,.7), 3px 3px 0 var(--a1), 6px 6px 0 var(--a4);
+      margin-bottom: 6px;
+    }
+    .setup-sub {
+      font-size: 11px; font-weight: 900; letter-spacing: 5px;
+      color: var(--a3); text-transform: uppercase;
+      text-shadow: 0 0 10px var(--a3); margin-bottom: 28px;
+    }
+    .field-group { margin-bottom: 14px; text-align: left; }
+    .field-label {
+      display: block; font-size: 11px; font-weight: 900;
+      letter-spacing: 2px; text-transform: uppercase;
+      color: rgba(240,230,255,.5); margin-bottom: 6px;
+    }
+    .field-input {
+      width: 100%; padding: 14px 16px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: rgba(15,12,29,.9);
+      color: var(--text);
+      font-family: 'Nunito', sans-serif;
+      font-size: 16px; font-weight: 700;
+      outline: none; transition: border-color .2s;
+    }
+    .field-input:focus { border-color: var(--a1); }
+
+    .btn-start {
+      width: 100%; margin-top: 6px;
+      font-family: 'Bangers', cursive;
+      font-size: 22px; letter-spacing: 3px;
+      background: var(--a1); border: none; color: #0f0c1d;
+      border-radius: 12px; padding: 16px;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(255,60,172,.5);
+      transition: transform .15s, box-shadow .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-start:active { transform: scale(.97); }
+
+    /* ── GAME SCREEN ── */
+    .player-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: 14px; padding: 14px 18px;
+      margin-bottom: 20px;
+      animation: fadeUp .3s both;
+    }
+    .player-info-name {
+      font-weight: 900; font-size: 16px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 55%;
+    }
+    .player-score-badge {
+      font-family: 'Bangers', cursive;
+      font-size: 26px; color: var(--a3); letter-spacing: 2px;
+      text-shadow: 0 0 10px var(--a3);
+      white-space: nowrap;
+    }
+
+    /* Action buttons row */
+    .action-row {
+      display: flex; gap: 10px; margin-bottom: 20px;
+      animation: fadeUp .35s .05s both;
+    }
+    .btn-gen {
+      flex: 1;
+      font-family: 'Bangers', cursive;
+      font-size: 18px; letter-spacing: 2px;
+      background: var(--a1); border: none; color: #0f0c1d;
+      border-radius: 12px; padding: 16px;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(255,60,172,.45);
+      transition: transform .15s; -webkit-tap-highlight-color: transparent;
+    }
+    .btn-gen:active { transform: scale(.97); }
+    .btn-end {
+      font-family: 'Bangers', cursive;
+      font-size: 16px; letter-spacing: 1px;
+      background: transparent;
+      border: 1.5px solid rgba(255,68,68,.5);
+      color: #ff8888;
+      border-radius: 12px; padding: 16px 18px;
+      cursor: pointer;
+      transition: background .15s; -webkit-tap-highlight-color: transparent;
+    }
+    .btn-end:active { background: rgba(255,68,68,.15); }
+
+    /* ── QUESTION CARD ── */
+    .q-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: 18px; padding: 22px 18px;
+      margin-bottom: 16px;
+      animation: fadeUp .3s cubic-bezier(.3,1.2,.5,1) both;
+    }
+    .q-num {
+      font-family: 'Bangers', cursive;
+      font-size: 11px; letter-spacing: 3px; color: rgba(255,204,0,.4);
+      text-transform: uppercase; margin-bottom: 10px;
+    }
+    .q-text {
+      font-weight: 900; font-size: clamp(15px, 4vw, 18px);
+      line-height: 1.4; color: var(--text);
+    }
+
+    /* Options */
+    .options-grid {
+      display: flex; flex-direction: column; gap: 10px;
+      animation: fadeUp .35s .1s both;
+    }
+    .opt-btn {
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(26,21,51,.85);
+      border: 1.5px solid var(--border);
+      border-radius: 12px; padding: 14px 16px;
+      cursor: pointer; text-align: left; width: 100%;
+      color: var(--text); font-family: 'Nunito', sans-serif;
+      font-size: 15px; font-weight: 700; line-height: 1.35;
+      transition: transform .12s, border-color .15s, background .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .opt-btn:active { transform: scale(.98); }
+    .opt-btn:not(.disabled):hover {
+      border-color: var(--a1);
+      background: rgba(40,30,70,.95);
+    }
+    .opt-letter {
+      font-family: 'Bangers', cursive;
+      font-size: 18px; color: var(--a2); letter-spacing: 1px;
+      min-width: 22px; flex-shrink: 0;
+    }
+    .opt-btn.correct {
+      border-color: var(--correct);
+      background: rgba(0,230,118,.14);
+      animation: pulse-correct .4s ease both;
+    }
+    .opt-btn.correct .opt-letter { color: var(--correct); }
+    .opt-btn.wrong {
+      border-color: var(--wrong);
+      background: rgba(255,68,68,.12);
+    }
+    .opt-btn.wrong .opt-letter { color: var(--wrong); }
+    .opt-btn.disabled { cursor: default; pointer-events: none; }
+    .opt-btn.faded { opacity: .35; }
+    @keyframes pulse-correct {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(1.03); }
+      100% { transform: scale(1); }
+    }
+
+    /* Result chip */
+    .result-chip {
+      text-align: center; margin: 14px 0;
+      font-family: 'Bangers', cursive;
+      font-size: 28px; letter-spacing: 3px;
+      animation: bounceIn .4s cubic-bezier(.3,1.5,.5,1) both;
+    }
+    .result-chip.ok  { color: var(--correct); text-shadow: 0 0 14px var(--correct); }
+    .result-chip.nok { color: var(--wrong);   text-shadow: 0 0 14px var(--wrong); }
+    @keyframes bounceIn {
+      from { transform: scale(0) rotate(-8deg); opacity: 0; }
+      to   { transform: scale(1) rotate(0deg);  opacity: 1; }
+    }
+
+    /* Idle illustration */
+    .idle-illustration {
+      text-align: center; padding: 40px 20px;
+      animation: fadeUp .4s .1s both;
+    }
+    .idle-icon {
+      font-size: 72px; margin-bottom: 16px;
+      animation: float 3s ease-in-out infinite alternate;
+    }
+    @keyframes float { to { transform: translateY(-10px); } }
+    .idle-text {
+      font-family: 'Bangers', cursive;
+      font-size: 22px; letter-spacing: 3px;
+      color: rgba(240,230,255,.3);
+    }
+
+    /* ── LEADERBOARD ── */
+    .lb-title {
+      text-align: center; margin-bottom: 22px;
+      animation: fadeUp .3s both;
+    }
+    .lb-title h1 {
+      font-family: 'Bangers', cursive;
+      font-size: clamp(38px, 10vw, 72px); letter-spacing: 4px;
+      color: var(--a2); line-height: 1;
+      text-shadow: 0 0 16px rgba(255,204,0,.7), 3px 3px 0 var(--a1), 6px 6px 0 var(--a4);
+    }
+    .lb-sub {
+      font-weight: 900; font-size: 10px; letter-spacing: 6px;
+      color: var(--a3); text-transform: uppercase;
+      text-shadow: 0 0 10px var(--a3); margin-top: 4px;
+    }
+    .lb-list { display: flex; flex-direction: column; gap: 8px; }
+    .lb-row {
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(26,21,51,.85);
+      border: 1.5px solid var(--border);
+      border-radius: 14px; padding: 14px 16px;
+      cursor: default;
+      animation: fadeUp .3s both;
+    }
+    .lb-medal {
+      font-family: 'Bangers', cursive; font-size: 26px;
+      min-width: 40px; text-align: center;
+    }
+    .lb-info { flex: 1; min-width: 0; }
+    .lb-name { font-weight: 900; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lb-detail { font-size: 11px; color: rgba(240,230,255,.4); margin-top: 2px; }
+    .lb-pbar { height: 3px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+    .lb-pfill { height: 100%; background: linear-gradient(90deg, var(--a1), var(--a4)); border-radius: 2px; transition: width .5s; }
+    .lb-score {
+      font-family: 'Bangers', cursive;
+      font-size: 24px; color: var(--a3); letter-spacing: 2px;
+      text-shadow: 0 0 8px var(--a3); text-align: right; white-space: nowrap;
+    }
+    .lb-empty { text-align: center; padding: 60px 20px; color: rgba(240,230,255,.3); }
+    .lb-empty-icon { font-size: 56px; margin-bottom: 14px; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(90px);
+      background: rgba(26,21,51,.97);
+      border: 1.5px solid var(--a3);
+      border-radius: 10px; padding: 12px 24px;
+      font-weight: 900; font-size: 15px; color: var(--a3);
+      z-index: 999; transition: transform .35s cubic-bezier(.3,1.3,.5,1);
+      box-shadow: 0 0 22px rgba(0,245,212,.28);
+      white-space: nowrap; max-width: calc(100vw - 32px);
+      text-align: center;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* Confetti canvas */
+    #confetti-canvas {
+      position: fixed; inset: 0; z-index: 500;
+      pointer-events: none;
+    }
+
+    @media (max-width: 400px) {
+      .opt-btn { font-size: 14px; padding: 12px 14px; }
+      .q-text  { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+
+  <nav>
+    <div class="logo">🎿 QUIZ</div>
+    <button class="tab-btn active" id="btn-quiz"        onclick="switchTab('quiz')">QUIZ</button>
+    <button class="tab-btn"        id="btn-leaderboard" onclick="switchTab('leaderboard')">CLASSEMENT</button>
+    <div class="sync-dot off" id="sync-dot"></div>
+  </nav>
+
+  <div id="main"></div>
+  <canvas id="confetti-canvas"></canvas>
+  <div id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════
+   QUESTIONS  (51 questions, doublon Q45 retiré)
+   ════════════════════════════════════════════════════ */
+const QUESTIONS = [
+  { q:"La Reine des Neiges puise ses origines dans un conte de 1844. Qui en est l'auteur ?",
+    opts:["Charles Perrault","Hans Christian Andersen","Les frères Grimm","Jean de la Fontaine"], ans:1 },
+  { q:"En quelle année le dessin animé Disney \"La Reine des neiges\" est-il sorti au cinéma ?",
+    opts:["2010","2013","2016","2018"], ans:1 },
+  { q:"Deux héros Disney font une apparition dans La Reine des neiges au couronnement d'Elsa. Qui sont-ils ?",
+    opts:["Raiponce et Flynn (Raiponce)","Belle et Adam (La belle et la bête)","Mérida et le roi Ferbus (Rebelle)","Esmeralda et Phoebus (Le bossu de Notre-Dame)"], ans:0 },
+  { q:"Dans \"La Reine des Neiges\", quel est le nom de la chanson entre Anna et Hans ?",
+    opts:["Tout réparer","Le renouveau","Je voudrais un bonhomme de neige","L'amour est un cadeau"], ans:3 },
+  { q:"Quel célèbre humoriste français a prêté sa voix à Olaf, le bonhomme de neige ?",
+    opts:["Dany Boon","José Garcia","Gad Elmaleh","Franck Dubosc"], ans:2 },
+  { q:"Le prince Hans est le dernier d'une grande fratrie. Combien de frères aînés a-t-il ?",
+    opts:["6","10","12","15"], ans:2 },
+  { q:"Quel prix prestigieux Disney remporte-t-il pour la première fois grâce à La Reine des Neiges ?",
+    opts:["Le Grammy Award de la chanson de l'année","L'Oscar du meilleur film d'animation","Le César des meilleurs effets visuels","La Palme d'Or de Cannes"], ans:1 },
+  { q:"Complétez les paroles de \"Libérée Délivrée\" : \"et mes pensées sont ____\"",
+    opts:["Des flocons de neige givrés","Des pétales de glace figés","Des fleurs de cristal gelées","Des montagnes enneigées"], ans:2 },
+  { q:"Dans la Reine des Neiges 2, comment s'appelle la petite salamandre ?",
+    opts:["Bruli","Bruni","Sali","Crami"], ans:1 },
+  { q:"Dans la Reine des Neiges 2, quel prénom féminin scande Olaf sans connaître personne avec ce prénom ?",
+    opts:["Sarah","Sabrina","Samantha","Sandra"], ans:2 },
+  { q:"Comment s'appelle le royaume dirigé par Elsa dans le premier opus ?",
+    opts:["Corona","Arendelle","Avalor","Novigrad"], ans:1 },
+  { q:"Que trouve Sid sous la glace dans l'Âge de Glace 3 ?",
+    opts:["Un gland","Des stalactites","Des œufs","De la nourriture"], ans:2 },
+  { q:"Comment s'appelle l'enfant de Manny dans l'Âge de Glace 3 ?",
+    opts:["Cerise","Brugnon","Pêche","Ananas"], ans:2 },
+  { q:"Quel est le nom de la belette dans l'Âge de Glace ?",
+    opts:["Rudy","Manny","Buck","Gutt"], ans:2 },
+  { q:"Comment s'appelle le propriétaire de la 'dent-poignard' dans l'Âge de Glace ?",
+    opts:["Rido","Pupuce","Radu","Rudy"], ans:3 },
+  { q:"Quel animal est Sid dans l'Âge de Glace ?",
+    opts:["Paresseux","Lémurien","Écureuil","Belette"], ans:0 },
+  { q:"En quelle année est sorti l'Âge de Glace 2 ?",
+    opts:["2005","2006","2008","2010"], ans:1 },
+  { q:"Quels sont les animaux principaux dans Happy Feet ?",
+    opts:["Pingouins","Manchots","Otaries","Ours polaires"], ans:1 },
+  { q:"Quel animal a failli tuer le personnage principal de Happy Feet ?",
+    opts:["Un ours blanc","Un requin","Un léopard des mers","Une orque"], ans:2 },
+  { q:"Quel est le nom québécois du film Happy Feet ?",
+    opts:["Les Petits Pieds du bonheur","Les Manchots dansants","Les Pieds Heureux","Les rois de la glisse"], ans:2 },
+  { q:"Quel est le nom de la planète de Glace dans Star Wars épisode 5 ?",
+    opts:["Cold","Hoth","Naboo","Endor"], ans:1 },
+  { q:"Dans la version Disney, de quelle couleur est le bas de la robe de Blanche-Neige ?",
+    opts:["Rouge","Bleu","Blanc","Jaune"], ans:3 },
+  { q:"Quel est le métier exercé par les sept nains dans Blanche-Neige ?",
+    opts:["Cordonniers","Mineurs","Chasseurs","Inventeurs"], ans:1 },
+  { q:"Comment Blanche-Neige est-elle réveillée après avoir croqué la pomme empoisonnée ?",
+    opts:["Une potion magique","Par le chant des oiseaux","Un baiser du prince","Les animaux de la forêt"], ans:2 },
+  { q:"Dans Le Pôle Express, quel objet le héros reçoit-il du Père Noël ?",
+    opts:["Une clochette","Un gant","Une montre","Un ticket en or"], ans:0 },
+  { q:"Dans Le Grinch, pourquoi le Grinch déteste-t-il Noël ?",
+    opts:["Il n'aime pas les cadeaux","Il est allergique au sapin","Son cœur est trop petit","Il a peur du froid"], ans:2 },
+  { q:"Dans Le Grinch, quel est le nom du chien du Grinch ?",
+    opts:["Buddy","Max","Snow","Rex"], ans:1 },
+  { q:"Dans Shining, dans quel lieu isolé se déroule l'histoire ?",
+    opts:["Un chalet","Un hôtel","Un hôpital","Une cabane"], ans:1 },
+  { q:"Dans Les Bronzés font du ski, dans quelle station se déroule l'histoire ?",
+    opts:["Val Thorens","Les Deux Alpes","Val d'Isère","Une station fictive"], ans:2 },
+  { q:"Dans Pokémon, quel Pokémon est connu pour créer des tempêtes de neige ?",
+    opts:["Pikachu","Salamèche","Artikodin","Rondoudou"], ans:2 },
+  { q:"Dans Harry Potter et le Prisonnier d'Azkaban, quelle créature fait chuter la température ?",
+    opts:["Un basilic","Un détraqueur","Un hippogriffe","Un elfe"], ans:1 },
+  { q:"Dans Un chant de Noël de Dickens, combien de fantômes rendent visite à Ebenezer Scrooge ?",
+    opts:["2","3","4","5"], ans:2 },
+  { q:"Où vit le Grinch ?",
+    opts:["Dans une forêt","Sur une montagne","Dans une grotte au-dessus de la ville","Dans un château"], ans:2 },
+  { q:"Comment s'appelle le jeune garçon choisi pour devenir le futur Père Noël dans L'Apprenti Père Noël ?",
+    opts:["Lucas","Nicolas","Hugo","Arthur"], ans:1 },
+  { q:"Quel mob neutre croise-t-on dans les biomes froids dans Minecraft ?",
+    opts:["Ours polaire","Pingouin","Narval","Renard"], ans:0 },
+  { q:"Quelle chanson de Mariah Carey est devenue un classique de Noël ?",
+    opts:["All I Want for Christmas Is You","Jingle Bell","We Belong Together","Fantasy of Christmas"], ans:0 },
+  { q:"Quelle est la ville la plus froide de Fortnite ?",
+    opts:["Polar Peak","Blizzard Bastion","Ice Island","Frozen Fortress"], ans:0 },
+  { q:"Dans Game of Thrones, quelle créature est associée au froid extrême au-delà du Mur ?",
+    opts:["Dragons","Marcheurs blancs","Loups géants","Géants gelés"], ans:1 },
+  { q:"C'est qui le GOAT du froid dans One Piece ?",
+    opts:["Luffy","Aokiji","Usopp","Wapol"], ans:1 },
+  { q:"Comment s'appelle le dragon principal apprivoisé par Harold dans Dragons ?",
+    opts:["Griffe de Feu","Krokmou","Rumblehorn","Furia Nocturne"], ans:1 },
+  { q:"Qui représente le mieux la DA du Torchtot ?",
+    opts:["Gaël Bennardo","Natsu Dragnir","La torche humaine","Shoto Todoroki"], ans:3 },
+  { q:"Quel artiste a popularisé la chanson Let It Snow ?",
+    opts:["Dean Martin","Frank Sinatra","Bing Crosby","Elvis Presley"], ans:0 },
+  { q:"Quel est le meilleur atout à avoir au saut à ski ?",
+    opts:["De l'expérience","Du talent","Une grosse bite","Un bon équipement"], ans:2 },
+  { q:"Quel village est célèbre pour ses marchés de Noël et son paysage enneigé en Alsace ?",
+    opts:["Strasbourg","Colmar","Annecy","Reims"], ans:1 },
+  { q:"Quelle est la taille du plus grand bonhomme de neige du monde ?",
+    opts:["15 m","22 m","37 m","52 m"], ans:2 },
+  { q:"Quelle est la hauteur de la plus grande sculpture de glace officiellement mesurée ?",
+    opts:["10 m","16 m","25 m","35 m"], ans:2 },
+  { q:"Dans la culture japonaise, quel sport d'hiver est très populaire ?",
+    opts:["Curling","Patinage artistique","Ski acrobatique","Snowboard"], ans:1 },
+  { q:"Quel film raconte l'histoire d'un train magique partant vers le Pôle Nord pour rencontrer le Père Noël ?",
+    opts:["Le Grinch","Le Pôle Express","Happy Feet","Klaus"], ans:1 },
+  { q:"Quelle est la capitale de l'Islande, pays célèbre pour ses paysages enneigés et volcaniques ?",
+    opts:["Oslo","Reykjavik","Helsinki","Stockholm"], ans:1 },
+  { q:"Quelle région de Runeterra (League of Legends) est réputée pour son climat hivernal ?",
+    opts:["Ionia","Freljord","Demacia","Targon"], ans:1 },
+  { q:"Comment s'appellent le renne et son propriétaire dans la Reine des neiges ?",
+    opts:["Sven le propriétaire et le renne n'a pas de nom","Sven le renne et Olaf le propriétaire","Kristoff le renne et Sven le propriétaire","Sven le renne et Kristoff le propriétaire"], ans:3 },
+];
+
+const LETTERS = ['A','B','C','D'];
+
+/* ════════════════════════════════════════════════════
+   STATE
+   ════════════════════════════════════════════════════ */
+let tab = 'quiz';
+let gamePhase = 'setup'; // 'setup' | 'idle' | 'question' | 'answered'
+let currentPlayer = null; // { id, name, correct, total }
+let askedIndices  = [];   // questions déjà posées cette session
+let currentQIndex = null; // index dans QUESTIONS du Q affiché
+let leaderboardData = {};
+let lbUnsub = null;
+
+/* ════════════════════════════════════════════════════
+   FIREBASE
+   ════════════════════════════════════════════════════ */
+function waitDb(cb) {
+  if (window._dbReady) { cb(); return; }
+  document.addEventListener('dbReady', cb, { once: true });
+}
+
+function listenLeaderboard() {
+  if (lbUnsub) lbUnsub();
+  const r = window._ref(window._db, 'quiz_players');
+  lbUnsub = window._onValue(r, snap => {
+    leaderboardData = snap.val() || {};
+    document.getElementById('sync-dot').classList.remove('off');
+    if (tab === 'leaderboard') renderLeaderboard();
+  }, () => {
+    document.getElementById('sync-dot').classList.add('off');
+  });
+}
+
+async function saveCurrentPlayer() {
+  if (!currentPlayer) return;
+  await window._set(
+    window._ref(window._db, `quiz_players/${currentPlayer.id}`),
+    {
+      name:      currentPlayer.name,
+      correct:   currentPlayer.correct,
+      total:     currentPlayer.total,
+      updatedAt: Date.now()
+    }
+  );
+}
+
+/* ════════════════════════════════════════════════════
+   TABS
+   ════════════════════════════════════════════════════ */
+window.switchTab = function(t) {
+  tab = t;
+  document.getElementById('btn-quiz').classList.toggle('active', t === 'quiz');
+  document.getElementById('btn-leaderboard').classList.toggle('active', t === 'leaderboard');
+  render();
+};
+
+/* ════════════════════════════════════════════════════
+   RENDER
+   ════════════════════════════════════════════════════ */
+function render() {
+  if (tab === 'quiz') {
+    if      (gamePhase === 'setup')    renderSetup();
+    else if (gamePhase === 'idle')     renderIdle();
+    else if (gamePhase === 'question') renderQuestion();
+    else if (gamePhase === 'answered') renderAnswered();
+  } else {
+    renderLeaderboard();
+  }
+}
+
+/* ── Setup ── */
+function renderSetup() {
+  document.getElementById('main').innerHTML = `
+    <div class="setup-card">
+      <div class="setup-title">QUIZ</div>
+      <div class="setup-sub">✦ Torchtot Drakk's ✦</div>
+      <div class="field-group">
+        <label class="field-label" for="inp-first">Prénom</label>
+        <input class="field-input" id="inp-first" type="text" placeholder="Prénom..." maxlength="30" autocomplete="off">
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="inp-last">Nom</label>
+        <input class="field-input" id="inp-last" type="text" placeholder="Nom..." maxlength="30" autocomplete="off">
+      </div>
+      <button class="btn-start" onclick="startGame()">COMMENCER !</button>
+    </div>`;
+
+  ['inp-first','inp-last'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') startGame();
+    });
+  });
+  setTimeout(() => document.getElementById('inp-first').focus(), 80);
+}
+
+/* ── Idle ── */
+function renderIdle() {
+  document.getElementById('main').innerHTML = `
+    ${bannerHTML()}
+    <div class="action-row">
+      <button class="btn-gen" onclick="generateQuestion()">🎲 GÉNÉRER QUESTION</button>
+      <button class="btn-end" onclick="endGame()">FIN</button>
+    </div>
+    <div class="idle-illustration">
+      <div class="idle-icon">❄️</div>
+      <div class="idle-text">PRÊT·E ?</div>
+    </div>`;
+}
+
+/* ── Question ── */
+function renderQuestion() {
+  const q = QUESTIONS[currentQIndex];
+  const optHTML = q.opts.map((o, i) =>
+    `<button class="opt-btn" onclick="answerQuestion(${i})">
+       <span class="opt-letter">${LETTERS[i]}</span>
+       <span>${esc(o)}</span>
+     </button>`
+  ).join('');
+
+  document.getElementById('main').innerHTML = `
+    ${bannerHTML()}
+    <div class="q-card">
+      <div class="q-num">Question ${askedIndices.length} / ${QUESTIONS.length}</div>
+      <div class="q-text">${esc(q.q)}</div>
+    </div>
+    <div class="options-grid">${optHTML}</div>`;
+}
+
+/* ── Answered ── */
+function renderAnswered() {
+  const q       = QUESTIONS[currentQIndex];
+  const correct = window._lastAnswerCorrect;
+  const chosen  = window._lastAnswerChosen;
+
+  const optHTML = q.opts.map((o, i) => {
+    let cls = 'opt-btn disabled';
+    if (i === q.ans)    cls += ' correct';
+    else if (i === chosen && !correct) cls += ' wrong';
+    else cls += ' faded';
+    return `<button class="${cls}">
+      <span class="opt-letter">${LETTERS[i]}</span>
+      <span>${esc(o)}</span>
+    </button>`;
+  }).join('');
+
+  const chip = correct
+    ? `<div class="result-chip ok">✓ BONNE RÉPONSE !</div>`
+    : `<div class="result-chip nok">✗ RATÉ !</div>`;
+
+  document.getElementById('main').innerHTML = `
+    ${bannerHTML()}
+    <div class="q-card">
+      <div class="q-num">Question ${askedIndices.length} / ${QUESTIONS.length}</div>
+      <div class="q-text">${esc(q.q)}</div>
+    </div>
+    <div class="options-grid">${optHTML}</div>
+    ${chip}
+    <div class="action-row" style="margin-top:6px;">
+      <button class="btn-gen" onclick="generateQuestion()">🎲 QUESTION SUIVANTE</button>
+      <button class="btn-end" onclick="endGame()">FIN</button>
+    </div>`;
+}
+
+/* ── Leaderboard ── */
+function renderLeaderboard() {
+  const rows = Object.entries(leaderboardData)
+    .map(([id, p]) => ({ id, ...p }))
+    .filter(p => p.total > 0)
+    .sort((a, b) => {
+      const pctA = a.total ? a.correct / a.total : 0;
+      const pctB = b.total ? b.correct / b.total : 0;
+      if (b.correct !== a.correct) return b.correct - a.correct;
+      return pctB - pctA;
+    });
+
+  const MEDALS = ['🥇','🥈','🥉'];
+  const RANK_COLORS = ['color:#ffcc00','color:#C0C0C0','color:#CD7F32'];
+
+  let html = `
+    <div class="lb-title">
+      <h1>CLASSEMENT</h1>
+      <div class="lb-sub">✦ Torchtot Drakk's ✦</div>
+    </div>`;
+
+  if (rows.length === 0) {
+    html += `<div class="lb-empty">
+      <div class="lb-empty-icon">🏆</div>
+      <p style="font-weight:900;font-size:14px;">Aucun score encore !</p>
+    </div>`;
+  } else {
+    html += `<div class="lb-list">`;
+    rows.forEach((r, i) => {
+      const pct  = r.total ? Math.round((r.correct / r.total) * 100) : 0;
+      const rank = i < 3 ? MEDALS[i] : `#${i + 1}`;
+      const rankStyle = i < 3 ? RANK_COLORS[i] : 'color:rgba(240,230,255,.35)';
+      html += `
+        <div class="lb-row" style="animation-delay:${i * 0.04}s">
+          <div class="lb-medal" style="${rankStyle}">${rank}</div>
+          <div class="lb-info">
+            <div class="lb-name">${esc(r.name)}</div>
+            <div class="lb-detail">${r.correct} bonne${r.correct!==1?'s':''} réponse${r.correct!==1?'s':''} · ${r.total} question${r.total!==1?'s':''}</div>
+            <div class="lb-pbar"><div class="lb-pfill" style="width:${pct}%"></div></div>
+          </div>
+          <div class="lb-score">${r.correct}/${r.total}</div>
+        </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('main').innerHTML = html;
+}
+
+/* ── Banner helper ── */
+function bannerHTML() {
+  if (!currentPlayer) return '';
+  const pct = currentPlayer.total
+    ? Math.round((currentPlayer.correct / currentPlayer.total) * 100)
+    : 0;
+  return `
+    <div class="player-banner">
+      <div class="player-info-name">👤 ${esc(currentPlayer.name)}</div>
+      <div class="player-score-badge">${currentPlayer.correct} ✓ / ${currentPlayer.total}</div>
+    </div>`;
+}
+
+/* ════════════════════════════════════════════════════
+   ACTIONS
+   ════════════════════════════════════════════════════ */
+window.startGame = function() {
+  const first = (document.getElementById('inp-first').value || '').trim();
+  const last  = (document.getElementById('inp-last').value  || '').trim();
+  const name  = [first, last].filter(Boolean).join(' ');
+  if (!name) { shakeInput(); return; }
+
+  const id = 'q' + Date.now();
+  currentPlayer = { id, name, correct: 0, total: 0 };
+  askedIndices  = [];
+  gamePhase     = 'idle';
+  render();
+  toast(`Bonne chance, ${first || name} ! 🎿`);
+};
+
+window.generateQuestion = function() {
+  const remaining = QUESTIONS
+    .map((_, i) => i)
+    .filter(i => !askedIndices.includes(i));
+
+  if (remaining.length === 0) {
+    toast('Toutes les questions ont été posées !');
+    gamePhase = 'idle';
+    render();
+    return;
+  }
+
+  currentQIndex = remaining[Math.floor(Math.random() * remaining.length)];
+  askedIndices.push(currentQIndex);
+  gamePhase = 'question';
+  render();
+};
+
+window.answerQuestion = async function(chosen) {
+  const q = QUESTIONS[currentQIndex];
+  const correct = chosen === q.ans;
+
+  window._lastAnswerCorrect = correct;
+  window._lastAnswerChosen  = chosen;
+
+  currentPlayer.total++;
+  if (correct) currentPlayer.correct++;
+
+  gamePhase = 'answered';
+  render();
+
+  await saveCurrentPlayer();
+
+  if (correct) spawnConfetti();
+};
+
+window.endGame = async function() {
+  if (currentPlayer && currentPlayer.total > 0) {
+    await saveCurrentPlayer();
+    toast(`Fin de partie ! ${currentPlayer.correct}/${currentPlayer.total} ✓`);
+  }
+  currentPlayer = null;
+  askedIndices  = [];
+  gamePhase     = 'setup';
+  render();
+};
+
+/* ════════════════════════════════════════════════════
+   HELPERS
+   ════════════════════════════════════════════════════ */
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+function shakeInput() {
+  const inp = document.getElementById('inp-first');
+  if (!inp) return;
+  inp.style.borderColor = 'var(--wrong)';
+  inp.style.animation   = 'none';
+  setTimeout(() => { inp.style.borderColor = ''; }, 800);
+}
+
+/* ── Confetti ── */
+function spawnConfetti() {
+  const canvas  = document.getElementById('confetti-canvas');
+  const ctx     = canvas.getContext('2d');
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const COLORS  = ['#ff3cac','#ffcc00','#00f5d4','#7b2fff','#fff'];
+  const pieces  = Array.from({ length: 60 }, () => ({
+    x:   Math.random() * canvas.width,
+    y:   -10 - Math.random() * 60,
+    r:   4 + Math.random() * 5,
+    c:   COLORS[Math.floor(Math.random() * COLORS.length)],
+    vx:  (Math.random() - .5) * 4,
+    vy:  3 + Math.random() * 4,
+    rot: Math.random() * Math.PI * 2,
+    vr:  (.5 - Math.random()) * .15,
+  }));
+
+  let frame = 0;
+  const MAX = 80;
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const alpha = frame < 40 ? 1 : 1 - (frame - 40) / 40;
+    pieces.forEach(p => {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+      ctx.restore();
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.rot += p.vr;
+      p.vy += .08;
+    });
+    frame++;
+    if (frame < MAX) requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  draw();
+}
+
+/* ════════════════════════════════════════════════════
+   BOOT
+   ════════════════════════════════════════════════════ */
+waitDb(() => {
+  try {
+    const testRef = window._ref(window._db, '.info/connected');
+    window._onValue(testRef, snap => {
+      document.getElementById('sync-dot').classList.toggle('off', !snap.val());
+    });
+    listenLeaderboard();
+  } catch(e) {
+    console.error('Firebase error', e);
+  }
+  render();
+});
+
+setTimeout(() => {
+  if (!window._dbReady) render();
+}, 1200);
+</script>
+</body>
+</html>
